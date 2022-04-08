@@ -1,2 +1,2 @@
-# wh-inventory
-Warehouse Inventory System
+# cashier-app
+Simple Cashier-app
