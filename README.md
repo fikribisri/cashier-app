@@ -1,4 +1,4 @@
-Trying to make a simple cashier apps
+Testing Cashier App
 
-Dependencies
-1. Core UI
+# Resources
+> CoreUI
