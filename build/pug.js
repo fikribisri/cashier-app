@@ -1,120 +1,85 @@
 #!/usr/bin/env node
-
 'use strict'
 
-const args = process.argv.slice(2)
+const fs = require('fs').promises
+const path = require('path')
+const mkdirp = require('mkdirp')
+const pug = require('pug')
+const { basename, dirname, resolve, sep } = path
 
-const fs         = require('fs')
-const path       = require('path')
-const mkdirp     = require('mkdirp')
-const pug        = require('pug')
-const src        = './pug/'
-const dest       = './public/'
-const pkg        = require(path.resolve(__dirname, '../package.json'))
-const beautify   = require('js-beautify').html
-const jsbOptions = {
-  indent_size: 2,
-  indent_inner_html: true,
-  unformatted: [''],
-  content_unformatted: ['textarea'],
-  extra_liners: ['']
-}
-const version    = args[0];
+const globby = require('globby')
 
-const basename   = path.basename
-const dirname    = path.dirname
-const resolve    = path.resolve
-const normalize  = path.normalize
-const join       = path.join
-const relative   = path.relative
-const extension  = path.extname
+// These are the filetypes we only care about replacing the version
+const GLOB = [
+  '**/*.pug'
+]
 
-const walkSync = (dir, filelist = []) => {
-  fs.readdirSync(dir).forEach(file => {
-    filelist = fs.statSync(path.join(dir, file)).isDirectory()
-      ? walkSync(path.join(dir, file), filelist)
-      : filelist.concat(path.join(dir, file))
-  })
-  return filelist
+const SRC = 'src/pug/views/'
+
+const GLOBBY_OPTIONS = {
+  cwd: path.join(__dirname, '..', SRC)
 }
 
-const isPug = (filename) => {
-  return extension(filename) === '.pug' ? true : false
+const base = levels => {
+  let path = './'
+  while (levels > 0) {
+    levels -= 1
+    path += '../'
+  }
+
+  return path
 }
 
 const compile = (filename, basedir) => {
-  const levels = filename.replace(`pug${path.sep}views${path.sep}`, '').replace(`pug${path.sep}pages${path.sep}`, '').split(`${path.sep}`).length
-  const base = (levels) => {
-    let path = './'
-    while (levels > 1) {
-      levels = levels - 1;
-      path = path + '../'
-    }
-    return path
-  }
+  const levels = basedir.split(`${sep}`).filter(el => el !== '').length
 
   const fn = pug.compileFile(filename, {
-    basedir: basedir,
-    pretty: true,
+    basedir: './pug/',
+    pretty: true
   })
   const html = fn({
     base: base(levels)
-  });
+  })
   return html
 }
 
 // Build html files
-const compileHtml = () => {
-  // Build index
-  if (version === 'ajax') {
-    const html = compile('./pug/layout/index.pug', './pug/layout/')
-    fs.writeFile(resolve(dest, 'index.html'), beautify(html, jsbOptions), function(err) {
-      if(err) {
-        return console.log(err);
-      }
-      console.log('index.html file was saved!');
-    })
-  }
+const compilePugToHtml = (file, dest) => {
+  const dir = dirname(file)
+  const filename = basename(file).replace('.pug', '.html')
+  const relative = path.relative(path.join(__dirname, '..'), dir.replace(SRC, ''))
+  const html = compile(path.join(__dirname, '..', SRC, file), `${relative}`)
 
-  // Build views
-  const views = walkSync('./pug/views/')
-  views.forEach((view) => {
-    if (isPug(view)) {
-      const html = compile(view, './pug/layout/')
-      let file
-      if (version === 'ajax') {
-        file = view.replace(`pug${path.sep}`, '').replace('.pug', '.html')
-      } else {
-        file = view.replace(`pug${path.sep}views${path.sep}`, '').replace('.pug', '.html')
+  mkdirp(path.join(__dirname, '..', dest, relative)).then(() => {
+    fs.writeFile(resolve(__dirname, '..', dest, relative, filename), html, err => {
+      if (err) {
+        throw err
       }
-      // Create tree
-      mkdirp.sync(resolve(dest, dirname(file)))
-      // Create HTML file
-      fs.writeFile(resolve(dest, file), beautify(html, jsbOptions), function(err) {
-        if(err) {
-          return console.log(err)
-        }
-        console.log(file + ' file was saved!')
-      })
-    }
-  })
-  // Build pages
-  const pages = walkSync('./pug/pages')
-  pages.forEach((page) => {
-    if (isPug(page)) {
-      const html = compile(page, './pug/layout/')
-      const file = page.replace(`pug${path.sep}pages${path.sep}`, '').replace('.pug', '.html')
-      // Create tree
-      mkdirp.sync(resolve(dest, dirname(file)))
-      // Create HTML file
-      fs.writeFile(resolve(dest, file), beautify(html, jsbOptions), function(err) {
-        if(err) {
-          return console.log(err)
-        }
-        console.log(file + ' file was saved!')
-      })
-    }
+
+      console.log(`${resolve(__dirname, '..', dest, relative, filename)} file saved!`)
+    })
   })
 }
 
-compileHtml()
+const args = require('minimist')(process.argv.slice(2))
+
+async function main(args) {
+  const { dest } = args
+
+  if (!dest) {
+    console.error('USAGE: change-version old_version new_version [--verbose] [--dry[-run]]')
+    console.error('Got arguments:', args)
+    process.exit(1)
+  }
+
+  try {
+    const files = await globby(GLOB, GLOBBY_OPTIONS)
+
+    await Promise.all(files.map(file => compilePugToHtml(file, dest)))
+  } catch (error) {
+    console.error(error)
+    process.exit(1)
+  }
+}
+
+main(args)
